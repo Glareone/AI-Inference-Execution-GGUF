@@ -12,9 +12,14 @@ working version in C#. Not a production engine. Not a wrapper. A guided investig
 every component is understood deeply enough to explain to anyone.
 
 **Apple Silicon-centric.** This project targets M-series Macs running macOS. We have no plans to
-support Windows or Intel. Hardware acceleration goes through Apple's stack: Accelerate first,
-then MLX for the GPU (planned, see
-[261101-apple-silicon-acceleration-strategy.md](docs/architecture/261101-apple-silicon-acceleration-strategy.md)).
+support Windows or Intel. Hardware acceleration goes through Apple's stack, in two phases (see
+[261101-apple-silicon-acceleration-strategy.md](docs/architecture/261101-apple-silicon-acceleration-strategy.md)):
+
+- **Phase 1 — done.** Matrix-vector math runs through Apple Accelerate (`cblas_sgemv`) on the
+  **CPU**. About 2.4–2.8x faster than before on this machine.
+- **Phase 2 — not started.** **The engine does not use the GPU or Metal yet.** The plan is MLX
+  (which runs on Metal) through its C API. Next step is a spike; see the
+  [handoff doc](docs/investigation/phase2-mlx-handoff.md).
 
 ## How to test the project
 
@@ -143,7 +148,11 @@ Approve the server once when Claude Code prompts, then check it with `/mcp`.
 
 **End-to-end generation works.** `dotnet run --project src/InferenceEngine.Cli -- --model
 <path.gguf> --prompt "..."` loads a GGUF file, tokenizes, runs the full transformer forward pass,
-samples, and streams generated text — on real weights, not a stub. Last verified: 2026-09-14.
+samples, and streams generated text — on real weights, not a stub. Last verified: 2026-11-01.
+
+> **Acceleration status: Phase 1 of 2.** Matrix-vector math is accelerated on the **CPU** via
+> Apple Accelerate. **No GPU/Metal execution yet** — that is Phase 2 (MLX), not started. Details in
+> the [acceleration ADR](docs/architecture/261101-apple-silicon-acceleration-strategy.md).
 
 ### What works today
 
@@ -152,8 +161,10 @@ samples, and streams generated text — on real weights, not a stub. Last verifi
 - **Tokenization**: hand-rolled byte-level BPE (`InferenceEngine.Tokenizers/`) sourced from the
   GGUF file's own embedded vocab/merges — no external tokenizer file needed.
 - **Transformer forward pass**: embeddings → RMSNorm → grouped-query attention with RoPE →
-  SwiGLU FFN → LM head (`InferenceEngine.Models/Llama/`), built entirely on
-  `System.Numerics.Tensors.TensorPrimitives` — no hand-written SIMD/intrinsics, no `unsafe`.
+  SwiGLU FFN → LM head (`InferenceEngine.Models/Llama/`), built on
+  `System.Numerics.Tensors.TensorPrimitives` — no hand-written SIMD/intrinsics, no hand-written
+  `unsafe` — plus Apple Accelerate `cblas_sgemv` for the matrix-vector multiplies (CPU, macOS).
+  The original managed loop stays as the test reference and the non-macOS fallback.
 - **KV-cache**: block-paged, head-major (HND) layout — 32-token blocks, lazy allocation, the
   attention loop reordered to cut K/V memory traffic ~3x over a naive per-query-head walk. See the
   [KV-cache ADR](docs/architecture/260914-kv-cache.md) and its
@@ -166,25 +177,30 @@ samples, and streams generated text — on real weights, not a stub. Last verifi
 - **CLI**: streamed token output, `--stats`, `--debug-tokenize`, `--debug-logits`, `--ban-words`,
   `.env` config.
 
-On this dev machine (Apple M4 Pro), SmolLM2-135M-Instruct-F16 generates at **~30 tok/s decode**
-at short context (see [experiments/kv-layout-benchmark.md](experiments/kv-layout-benchmark.md) for
-longer-context numbers).
+On this dev machine (Apple M4 Pro, Release build), SmolLM2-135M-Instruct-F16 generates at
+**~82–95 tok/s decode** at short context with Accelerate (Phase 1), against **~34–37 tok/s** on
+the managed loop it replaced (64 tokens, short prompt, 3–4 runs each, via the CLI `--stats` line).
+Set `INFERENCE_MATVEC=managed` to run the old loop for an A/B comparison. Only the short prompt
+was re-measured for Phase 1; the longer-context numbers in
+[experiments/kv-layout-benchmark.md](experiments/kv-layout-benchmark.md) predate Accelerate.
 
 ### Test coverage
 
-**113 test cases, 0 failing**, one xUnit v3 project per `src/` project:
+**147 test cases, 0 failing** (with `INFERENCE_MODEL` set: 146 pass, 1 skips; without it: 142
+pass, 5 skip), one xUnit v3 project per `src/` project:
 
 | Project | Test cases (incl. `[Theory]` rows) |
 |---|---|
 | `InferenceEngine.Core.Tests` | 4 |
 | `InferenceEngine.Tokenizers.Tests` | 8 |
 | `InferenceEngine.Cli.Tests` | 24 |
-| `InferenceEngine.Models.Tests` | 33 (incl. a bit-exact FNV-1a golden-logit-hash regression test against the real model) |
+| `InferenceEngine.Models.Tests` | 67 (incl. a bit-exact FNV-1a golden-logit-hash regression test against the real model, pinned to the managed loop, and Accelerate-vs-managed tolerance and greedy-token tests) |
 | `InferenceEngine.Engine.Tests` | 44 |
 
-Run with `dotnet test`. Two of the `Models.Tests` cases (the golden-logit baseline) additionally
-need `INFERENCE_MODEL=<path.gguf>` set to a real GGUF file — they skip cleanly, not fail, when it
-isn't. See each test project's own `README.md` for the business scenarios covered.
+Run with `dotnet test` (do not pass `-nologo`: it breaks the Microsoft.Testing.Platform runner).
+Four `Models.Tests` cases (the two golden-logit baselines and the two Accelerate end-to-end
+generation tests) additionally need `INFERENCE_MODEL=<path.gguf>` set to a real GGUF file — they
+skip cleanly, not fail, when it isn't. The Accelerate-specific tests skip off macOS. See each test project's own `README.md` for the business scenarios covered.
 
 ### Architecture decisions
 
@@ -195,6 +211,7 @@ isn't. See each test project's own `README.md` for the business scenarios covere
 | [Paged + head-major KV-cache](docs/architecture/260914-kv-cache.md) | accepted |
 | [Logits processing and sampling pipeline](docs/architecture/260917-logits-processing.md) | accepted |
 | [Attention & transformer](docs/architecture/260917-attention-and-transformer.md) | accepted |
+| [Apple Silicon acceleration](docs/architecture/261101-apple-silicon-acceleration-strategy.md) | proposed — **Phase 1 (Accelerate, CPU) implemented; Phase 2 (MLX/Metal GPU) not started** |
 | Model format loading, tokenization | still `planned` placeholders — each is already implemented in code, the ADR write-up just hasn't caught up |
 | HuggingFace model acquisition, performance baseline | still `planned` placeholders, and genuinely not started — models are fetched via the dotLLM CLI as a stopgap, not a real download path of our own, and there's no formal performance-baseline methodology yet beyond the ad hoc measurements in `experiments/` |
 
@@ -303,6 +320,8 @@ history and [CHANGELOG.md](CHANGELOG.md) for the detailed change-by-change log.
     how other engines structure their projects
   - [kv-cache-research.md](docs/investigation/kv-cache-research.md) — the five eras of KV-cache
     design, this engine's choice
+  - [phase2-mlx-handoff.md](docs/investigation/phase2-mlx-handoff.md) — start-here doc for the
+    Phase 2 MLX/GPU spike (not started)
 - **Business scenarios** ([docs/scenarios/](docs/scenarios/), Gherkin `.feature`, one per `src/`
   project): [Core](docs/scenarios/InferenceEngine.Core.feature),
   [Models](docs/scenarios/InferenceEngine.Models.feature),

@@ -5,7 +5,8 @@
 
 ## Executive summary
 
-**GPU execution is enabled for this project. We are moving to MLX, in two phases.**
+**We are moving to MLX for GPU execution, in two phases. Today only Phase 1 (CPU) exists; the
+engine does not use the GPU yet.**
 
 - **Phase 1 - Accelerate (CPU).** Replace the `Ops.MatVec` loop with Apple Accelerate
   `cblas_sgemv` via P/Invoke. Contained in `Models`. No interface change.
@@ -15,13 +16,21 @@
   own ADR before code.
 - **Why MLX, not raw Metal.** MLX supplies kernels, unified-memory handling, fusion, and
   command-buffer batching. Hand-writing that is months of GPU work.
-- **Only ~30 tok/s is measured** (SmolLM2-135M-F16, M4 Pro). Every other number here is from a
-  research pass, not measured. A 135M model may gain little from a GPU. Both phases gate on a
-  benchmark.
+- **Measured so far:** managed loop ~34-37 tok/s, Accelerate ~82-95 tok/s (SmolLM2-135M-F16, M4
+  Pro; see Phase 1 results). Every other number here is from a research pass, not measured. A 135M
+  model may gain little from a GPU. Phase 2 gates on a benchmark.
+
+**Current status (2026-11-01)**
+
+- **Phase 1 (Accelerate, CPU) is implemented and tested.** Go/no-go gate passed.
+- **Phase 2 (MLX / Metal GPU) is NOT started. The engine does not use the GPU or Metal today.**
+  Phase 1 accelerates CPU matrix-vector math only.
+- Phase 2 next step: the spike (see Implementation plan). Handoff doc:
+  [phase2-mlx-handoff.md](../investigation/phase2-mlx-handoff.md).
 
 ## Context and Problem Statement
 
-The engine decodes at ~30 tok/s (measured). All math goes through `TensorPrimitives`
+Before Phase 1 the engine decoded at ~30-37 tok/s (measured). All math went through `TensorPrimitives`
 (auto-vectorized to NEON) in `src/InferenceEngine.Models/Math/Ops.cs`. `MatVec` (`Ops.cs:25-31`)
 is a loop of `TensorPrimitives.Dot`, one per output row. The forward pass is single-token, F32
 ([260917](260917-attention-and-transformer.md)).
@@ -105,26 +114,56 @@ Legend: 🟢 upside · 🟡 accepted trade-off · 🔴 downside.
 - New `Math/AccelerateBlas.cs`: `LibraryImport` declaration.
 - `InferenceEngine.Models.csproj`: `AllowUnsafeBlocks=true` (see Decision Outcome).
 - `IModel`, `IKvCache`, `Engine`, `Cli`: no change. Accelerate reads the same `float[]` memory.
-- The CPU `TensorPrimitives` loop stays, but only as the **test oracle and golden-hash path**. It
-  is not a Windows/Intel support story.
+- The CPU `TensorPrimitives` loop stays as `Ops.MatVecManaged`: **test oracle, golden-hash path,
+  and runtime fallback** when Accelerate is unavailable (see Deviations). It is not a
+  Windows/Intel support goal.
 - 🟡 The "no `unsafe`" claim in [260917](260917-attention-and-transformer.md) stops being true at
   the `Models` project-settings level. It stays true for hand-written code.
 - 🟢 No hand-written pinning. Per context7 (`SpanMarshallers.md`, marked historical), the generator
-  pins blittable `Span<float>` rather than copying. Confirm in the unit test, do not assume.
+  pins blittable `Span<float>` rather than copying. Tests confirm correctness with the generator.
+  A no-copy check was not done: still unverified.
 - 🟡 **Golden hash is not valid on the Accelerate path.** BLAS may accumulate in a different order
   than `TensorPrimitives.Dot`. The FNV-1a logit hash (`GoldenLogitBaselineTests.cs`) is bit-exact
   and stays pinned to the CPU path. On the Accelerate path, verify with float tolerance on
   `MatVec` and identical greedy tokens. This reverses 260914/260917 bit-identity for that path
   only.
-- 🟡 **Speedup not assumed.** `sgemv` is memory-bandwidth-bound, like decode. P/Invoke runs ~211
-  times per token on a 30-layer model (7 matvecs per layer + LM head; arithmetic, not measured).
-  **Go/no-go gate:** Phase 1 lands only if the benchmark shows a gain. Otherwise revert and record
-  the result here.
-- 🟡 **Library path unverified.** The plan's `libSystem.B.dylib` is not confirmed to export
-  `cblas_*`. The usual home is the Accelerate framework. The spike must confirm the symbol
-  resolves.
-- 🟡 **CBLAS constants unverified.** Row-major 101 and no-trans 111 are the standard values, not
-  confirmed in the docs queried. Check the SDK header.
+- 🟢 **Speedup measured, Go/no-go gate PASSED.** See Phase 1 results. Caveat: one model, one
+  machine. P/Invoke runs ~211 times per token on a 30-layer model (arithmetic, not measured).
+- 🟢 **Library path verified.** `/System/Library/Frameworks/Accelerate.framework/Accelerate` loads
+  and `cblas_sgemv` resolves. The plan's `libSystem.B.dylib` was never used or tested.
+- 🟢 **CBLAS constants verified.** CblasRowMajor=101 and CblasNoTrans=111 with the classic 32-bit
+  `int` entry point match the managed loop in tests.
+
+#### Phase 1 results (measured: Apple M4 Pro, Release, SmolLM2-135M-Instruct-F16)
+
+Prompt "What is machine learning? Explain briefly.", 64 tokens, CLI `--stats` line. Short prompt
+only; the long prompt was not benchmarked.
+
+| Path | tok/s runs | Range |
+|------|------------|-------|
+| Managed loop (before) | 36.9, 34.2, 33.6, 35.2 | ~34-37 |
+| Accelerate `cblas_sgemv` | 82.2, 94.8, 84.6 | ~82-95 |
+
+- Roughly 2.4-2.8x. Generated text identical on both paths (64 tokens).
+- Tests: 32 greedy tokens identical, prefill top-1 identical, top-10 overlap >= 8.
+- **Why faster is not measured.** Could be the tuned kernel, multithreading, or the matrix unit.
+  Do not claim AMX/SME as the cause. AMX vs SME stays open.
+
+#### Deviations from the Phase 1 plan
+
+- **Not unconditional.** Plan said call Accelerate always and drop the OS check. Reality:
+  `AccelerateBlas.IsAvailable` probes once (false off macOS) and `Ops.MatVec` falls back to
+  `Ops.MatVecManaged`. CI runs on ubuntu-latest and tests must pass there. Not a Windows/Intel
+  support goal.
+- **Pinning the managed path.** Added `Ops.ForceManagedMatVec()` (AsyncLocal scope) and env var
+  `INFERENCE_MATVEC=managed`. `GoldenLogitBaselineTests` pin the managed loop inside that scope, so
+  the hash stays bit-exact and machine-independent. Accelerate correctness is covered by tolerance
+  tests plus a greedy-token-equality test, not the hash.
+- **Files:** `src/InferenceEngine.Models/Math/AccelerateBlas.cs` (new), `Ops.cs` (changed);
+  tests `Math/AccelerateBlasTests.cs`, `Math/OpsMatVecTests.cs`, `Llama/AcceleratedGenerationTests.cs`
+  (new). 147 tests: 146 pass + 1 skip with the model set; 142 pass + 5 skip without.
+- **`global.json`** had lost its `"test": {"runner": "Microsoft.Testing.Platform"}` block (removed
+  by commit 079ca5e). Restored.
 
 ### Phase 2 (MLX)
 
@@ -165,12 +204,12 @@ build-vs-reuse verdicts, the learning goal, the five-project layout, CPU path as
 
 ## Implementation plan
 
-### Phase 1 - Accelerate
+### Phase 1 - Accelerate (DONE except step 5)
 
-1. **Spike (no product code).** Confirm the library path resolves `cblas_sgemv`. Measure `MatVec`
-   before/after on real shapes. Go/no-go on the number.
-2. **Set** `AllowUnsafeBlocks=true` in `InferenceEngine.Models.csproj` only.
-3. **Create** `src/InferenceEngine.Models/Math/AccelerateBlas.cs`:
+1. **DONE.** **Spike (no product code).** Confirm the library path resolves `cblas_sgemv`. Measure
+   `MatVec` before/after on real shapes. Go/no-go on the number.
+2. **DONE.** **Set** `AllowUnsafeBlocks=true` in `InferenceEngine.Models.csproj` only.
+3. **DONE.** **Create** `src/InferenceEngine.Models/Math/AccelerateBlas.cs`:
 
    ```csharp
    [LibraryImport("/System/Library/Frameworks/Accelerate.framework/Accelerate")]
@@ -184,11 +223,13 @@ build-vs-reuse verdicts, the learning goal, the five-project layout, CPU path as
    Parameter order matches Apple's `cblas_sgemv`, checked via context7. The span-for-pointer
    mapping is ours. Call row-major, no-transpose, `m = outDim`, `n = inDim`, `lda = inDim`,
    `alpha = 1`, `beta = 0`. Use the classic 32-bit `int` entry point, not the ILP64 variants.
-   Confirm both in the spike.
-4. **Modify** `Ops.MatVec` to call Accelerate. Keep the loop for tests and the golden hash.
-5. **Update** the `Ops.MatVec` doc comment and the "Numerics" note in 260917 (Decision Log row,
-   separate commit).
-6. **Benchmark** short and long prompts (`experiments/`). Record numbers in the Decision Log.
+   Both confirmed (see Phase 1 results).
+4. **DONE.** **Modify** `Ops.MatVec` to call Accelerate. Keep the loop (`MatVecManaged`) for tests,
+   the golden hash, and fallback.
+5. **NOT DONE.** **Update** the `Ops.MatVec` doc comment and the "Numerics" note in 260917
+   (Decision Log row, separate commit). Still open.
+6. **DONE (short prompt only).** **Benchmark** (`experiments/`). Numbers in Phase 1 results and the
+   Decision Log. Long prompt not run.
 
 No change to `Core`, `Engine`, `Cli`, other `.csproj` files.
 
@@ -203,14 +244,14 @@ No change to `Core`, `Engine`, `Cli`, other `.csproj` files.
 
 ## Test plan
 
-### Phase 1
+### Phase 1 (tests done; long-prompt benchmark not run)
 
-- **Unit:** Accelerate `MatVec` equals the `TensorPrimitives.Dot` loop within float tolerance on
-  several shapes (include non-SIMD-width multiples and real model shapes).
-- **Unit:** symbol resolves; hand-computed 2x3 case correct; result written in place.
-- **Integration:** same greedy tokens as the CPU path on the golden-baseline prompts. Golden
-  FNV-1a hash stays pinned to the CPU path.
-- **Benchmark:** tok/s before/after, short and long prompt.
+- **Unit (done):** Accelerate `MatVec` equals the `TensorPrimitives.Dot` loop within float
+  tolerance on several shapes (include non-SIMD-width multiples and real model shapes).
+- **Unit (done):** symbol resolves; hand-computed 2x3 case correct; result written in place.
+- **Integration (done):** same greedy tokens as the CPU path (32 greedy tokens, prefill top-1,
+  top-10 overlap >= 8). Golden FNV-1a hash stays pinned to the managed path.
+- **Benchmark:** tok/s before/after. Short prompt done. Long prompt not run.
 - Follow `test-writer-runner` conventions: `tests/InferenceEngine.Models.Tests`, business case
   documented, `dotnet test` green.
 
@@ -253,9 +294,13 @@ No change to `Core`, `Engine`, `Cli`, other `.csproj` files.
 - [260914](260914-kv-cache.md) - CPU KV design Phase 2 must reconcile.
 - **Verified via context7:** `cblas_sgemv` parameter order; `LibraryImport` span pinning;
   `SYSLIB1062`.
-- **Not verified (research pass or memory):** all tok/s figures except 30; `Itexoft.MLX` details;
-  `mlx-c` ABI history; Ollama MLX default and ~2x claim; 38-kernel count; AMX vs SME on M4;
-  whether `libSystem.B.dylib` exports `cblas_*`; CBLAS enum constants.
+- **Verified by running code (M4 Pro):** Accelerate framework path loads, `cblas_sgemv` resolves;
+  CBLAS constants 101/111 with the 32-bit `int` entry point; generator span pinning gives correct
+  results.
+- **Not verified (research pass or memory):** tok/s figures other than the Phase 1 results
+  (including MLX/Ollama numbers); span pinning is no-copy; `Itexoft.MLX` details; `mlx-c` ABI
+  history; Ollama MLX default and ~2x claim; 38-kernel count; AMX vs SME on M4; why Accelerate is
+  faster.
 
 ## Decision Log
 
@@ -264,3 +309,5 @@ No change to `Core`, `Engine`, `Cli`, other `.csproj` files.
 | 2026-11-01 | Initial proposal                                                                                                                                                                                                    | Aleksei Kolesnikov |
 | 2026-11-01 | Simplified: merged scope and problem statement, numbered drivers (added low-hanging-fruit and keep-door-open), options limited to Apple Silicon (CUDA, OpenCL/ILGPU dropped to one line), compressed research and Consequences | Aleksei Kolesnikov |
 | 2026-11-01 | `unsafe` scope decided: `AllowUnsafeBlocks=true` in `InferenceEngine.Models.csproj` only; `Directory.Build.props` stays `false`; no hand-written `unsafe`; CPU path kept as test oracle only, not a cross-platform fallback | Aleksei Kolesnikov |
+| 2026-11-01 | Phase 1 implemented. Measured (M4 Pro, SmolLM2-135M-F16, short prompt, 64 tokens): managed 36.9/34.2/33.6/35.2 tok/s, Accelerate 82.2/94.8/84.6 tok/s (~2.4-2.8x). Text identical. Go/no-go gate passed. Cause of speedup unmeasured; AMX vs SME open. Library path, CBLAS constants verified. Phase 2 not started. Step 5 (260917 note) and long-prompt benchmark not done | Aleksei Kolesnikov |
+| 2026-11-01 | Deviations from Phase 1 plan: `AccelerateBlas.IsAvailable` probe plus `Ops.MatVecManaged` fallback (CI is ubuntu-latest) instead of unconditional call; added `Ops.ForceManagedMatVec()` and `INFERENCE_MATVEC=managed`, golden hash tests pin the managed path; restored `"test"` runner block in `global.json` (lost in 079ca5e). 147 tests: 146 pass + 1 skip (model set), 142 pass + 5 skip (no model) | Aleksei Kolesnikov |

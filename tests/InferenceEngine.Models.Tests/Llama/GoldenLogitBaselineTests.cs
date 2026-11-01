@@ -1,4 +1,5 @@
 using InferenceEngine.Engine;
+using InferenceEngine.Models.Math;
 
 namespace InferenceEngine.Models.Tests.Llama;
 
@@ -85,6 +86,11 @@ public sealed class GoldenLogitBaselineTests(GoldenModelFixture fixture) : IClas
     private static (ulong Hash, (int Id, string Text, float Logit)[] Top10, int TokenCount) CapturePrefillLogits(
         InferenceSession session, string prompt)
     {
+        // The hashes are bit-exact, so pin the managed MatVec loop. Accelerate may sum in a
+        // different order (and differently per chip); its correctness is covered by
+        // AcceleratedGenerationTests (same greedy tokens) instead. ADR 261101.
+        using var _ = Ops.ForceManagedMatVec();
+
         var promptIds = session.Tokenize(prompt, raw: false);
         var vocabSize = session.Config.VocabSize;
 
