@@ -27,5 +27,10 @@ This project's ground rules (stack, `unsafe` policy, ADR process, working style)
     `csharp-dotnet`; also auto-discoverable when working with `.cs`/`.csproj` files generally.
   - `caveman` — concise, specific writing: short sentences, no hedging, no filler. Preloaded into
     every subagent, so ADRs, comments, commit messages, and reports back stay tight.
+- Rules live in [.claude/rules/](.claude/rules/):
+  - `unsafe-policy` — every project is safe-only except `InferenceEngine.Models`, which sets
+    `AllowUnsafeBlocks=true` for `LibraryImport` P/Invoke (Accelerate/MLX). Never copy the flag
+    to another project.
+- This project is Apple Silicon-centric (see AGENTS.md). Do not add Windows/Intel code paths.
 - No hooks yet; configure them in `.claude/settings.json` as real, recurring needs show up —
   don't scaffold empty ones speculatively.

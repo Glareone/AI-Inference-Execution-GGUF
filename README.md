@@ -11,6 +11,11 @@ loading, tokenization, attention mechanisms, KV-cache, sampling, serving — by 
 working version in C#. Not a production engine. Not a wrapper. A guided investigation where
 every component is understood deeply enough to explain to anyone.
 
+**Apple Silicon-centric.** This project targets M-series Macs running macOS. We have no plans to
+support Windows or Intel. Hardware acceleration goes through Apple's stack: Accelerate first,
+then MLX for the GPU (planned, see
+[261101-apple-silicon-acceleration-strategy.md](docs/architecture/261101-apple-silicon-acceleration-strategy.md)).
+
 ## How to test the project
 
 Point `--model` at a local GGUF file (F16 or F32 — see [Test Model](#test-model)) and pass a prompt:

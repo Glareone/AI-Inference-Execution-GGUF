@@ -47,6 +47,10 @@ cases, etc.) are allowed only in narrow, explicitly justified spots. Before writ
    note the decision in an ADR (hand off to `adr-author` for that, or write it yourself
    following `docs/architecture/template.md`).
 
+Approved exception: `InferenceEngine.Models` sets `AllowUnsafeBlocks=true` so the `LibraryImport`
+generator compiles (ADR 261101). That covers P/Invoke declarations only, not hand-written
+`unsafe` blocks. Every other project stays safe-only. See `.claude/rules/unsafe-policy.md`.
+
 If you're reviewing a diff and find `unsafe` code that wasn't flagged and confirmed this way,
 treat it as a finding — don't wave it through because it looks reasonable.
 

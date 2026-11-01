@@ -1,5 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- Only project allowed to set this. The LibraryImport source generator (Apple Accelerate
+         P/Invoke) fails with SYSLIB1062 without it. No hand-written unsafe blocks.
+         See docs/architecture/261101-apple-silicon-acceleration-strategy.md and
+         .claude/rules/unsafe-policy.md. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\InferenceEngine.Core\InferenceEngine.Core.csproj" />
   </ItemGroup>

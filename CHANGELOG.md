@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- [Apple Silicon acceleration ADR](docs/architecture/261101-apple-silicon-acceleration-strategy.md)
+  (proposed): Accelerate `cblas_sgemv` for CPU matvec (Phase 1), MLX via its C API for GPU
+  (Phase 2). Project is now stated as Apple Silicon-centric (no Windows/Intel plans).
+- `AllowUnsafeBlocks=true` in `InferenceEngine.Models` only, for `LibraryImport` P/Invoke; rule
+  in `.claude/rules/unsafe-policy.md`. All other projects stay safe-only.
 - Project scaffolding: README with project goal and inspiration (dotLLM by Konrad Kokosa),
   AGENTS.md / CLAUDE.md ground rules, ADR template (`architecture/`), and Claude Code
   subagents (`adr-writer-reviewer`, `csharp-dotnet`).
