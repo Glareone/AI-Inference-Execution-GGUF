@@ -80,13 +80,16 @@ try
 
     return 0;
 }
-catch (Exception ex) when (ex is ArgumentException or InvalidDataException or NotSupportedException)
+catch (Exception ex) when (ex is ArgumentException or InvalidDataException or NotSupportedException
+                               or FileNotFoundException or DirectoryNotFoundException)
 {
     // Covers CliOptions/Generate validation (ArgumentException), a malformed GGUF file or a
-    // model/tokenizer vocab-size mismatch (InvalidDataException), and an unsupported GGUF
-    // version/architecture/tokenizer/pre-tokenizer (NotSupportedException) — every exception
-    // type InferenceSession.Load and Generate are documented to throw for bad input, so all of
-    // them get a clean one-line message instead of an unhandled-exception stack trace.
+    // model/tokenizer vocab-size mismatch (InvalidDataException), an unsupported GGUF
+    // version/architecture/tokenizer/pre-tokenizer (NotSupportedException), and a --model path
+    // that doesn't exist (FileNotFoundException, or DirectoryNotFoundException when a parent
+    // directory is missing) — every exception type InferenceSession.Load and Generate throw for
+    // bad input, so all of them get a clean one-line message instead of an unhandled-exception
+    // stack trace and a crash exit code.
     output.Error(ex.Message);
     return 1;
 }

@@ -10,7 +10,8 @@ Written 2026-11-01 for a fresh session. Read this, then do the spike. Do not sta
 - **Phase 2 is not started. The engine does not use the GPU or Metal.**
 - Decision and reasoning: [261101-apple-silicon-acceleration-strategy.md](../architecture/261101-apple-silicon-acceleration-strategy.md).
   Ollama/llama.cpp/MLX research is summarized there.
-- 147 tests pass. 5 skip without a model file, 1 skips with it.
+- 150 tests, 0 failing. On macOS: 5 skip without a model file, 1 skips with it. On Linux CI the 23
+  Accelerate-only cases skip as well (127 pass / 23 skip with the model, 123 / 27 without).
 
 ## Goal of the next session
 

@@ -14,10 +14,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `INFERENCE_MATVEC=managed` switches to it. Golden-hash tests pin the managed loop. Handoff for
   Phase 2: [phase2-mlx-handoff.md](docs/investigation/phase2-mlx-handoff.md).
 
+- Fix: a missing `--model` file (or directory) now prints a one-line error and exits with code 1
+  instead of crashing with an unhandled `FileNotFoundException` stack trace and exit code 134.
+  Covered by new process-level tests in `InferenceEngine.Cli.Tests/ProgramTests.cs`.
 - Fix: `global.json` regained its `Microsoft.Testing.Platform` test-runner block (dropped by an
   earlier commit), so plain `dotnet test` works again on the .NET 10 SDK.
 - [Apple Silicon acceleration ADR](docs/architecture/261101-apple-silicon-acceleration-strategy.md)
-  (proposed): Accelerate `cblas_sgemv` for CPU matvec (Phase 1), MLX via its C API for GPU
+  (proposed): Accelerate `cblas_sgemv` for CPU matvec (Phase 1), MLX (via mlx-c, Metal-backed) for GPU tensor compute
   (Phase 2). Project is now stated as Apple Silicon-centric (no Windows/Intel plans).
 - `AllowUnsafeBlocks=true` in `InferenceEngine.Models` only, for `LibraryImport` P/Invoke; rule
   in `.claude/rules/unsafe-policy.md`. All other projects stay safe-only.

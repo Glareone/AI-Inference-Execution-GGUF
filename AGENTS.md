@@ -13,8 +13,7 @@ trying to out-build dotLLM. We're building a smaller version to *understand* the
 libraries wherever that's reasonable.
 
 **Apple Silicon-centric.** This project targets M-series Macs running macOS. We have no plans to
-support Windows or Intel. Platform-specific choices (Apple Accelerate, MLX) are fine and
-expected. Do not add cross-platform abstractions or non-Apple code paths for their own sake.
+support Windows or Intel. Platform-specific acceleration is expected: Apple Accelerate for CPU BLAS (Phase 1), MLX on Metal for GPU compute (Phase 2). Do not add cross-platform abstractions or non-Apple code paths for their own sake.
 See [ADR 261101](docs/architecture/261101-apple-silicon-acceleration-strategy.md).
 
 ## Stack
@@ -72,7 +71,7 @@ Reference materials and external projects:
 - **[llama.cpp](https://github.com/ggml-org/llama.cpp)** — GGUF format origin, algorithms
 - **[Microsoft.ML.Tokenizers](https://www.nuget.org/packages/Microsoft.ML.Tokenizers)** — tokenizer candidate
 - **[Apple Accelerate](https://developer.apple.com/documentation/accelerate)** — CBLAS/vDSP, the Phase 1 CPU math path
-- **[MLX](https://github.com/ml-explore/mlx)** / **[mlx-c](https://github.com/ml-explore/mlx-c)** — Apple's array framework and its C API, the Phase 2 GPU path
+- **[MLX](https://github.com/ml-explore/mlx)** / **[mlx-c](https://github.com/ml-explore/mlx-c)** — Apple's ML framework (CPU + Metal-backed GPU) and its C API; the Phase 2 GPU compute layer
 
 Test model: SmolLM2-135M-Instruct (bartowski Q4_K_M, 101 MB) — installed via dotLLM CLI.
 

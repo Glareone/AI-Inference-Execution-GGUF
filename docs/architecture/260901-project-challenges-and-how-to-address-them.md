@@ -77,7 +77,7 @@ rather than reading about it, actually teaches us about how inference works.
 | Sampling / logits | Low | **High** — temperature/top-k/top-p is core and cheap to build | **Build** |
 | Orchestration / generation loop | Low–Medium | **High** — how the pieces become a token stream | **Build** |
 | Serving (HTTP API) | Medium | Low — not an inference internal | **Defer** |
-| CUDA kernels | Very High | Low for a CPU-first learning project | **Skip** (CUDA only; GPU via MLX on Apple Silicon is proposed in [261101](261101-apple-silicon-acceleration-strategy.md)) |
+| CUDA kernels | Very High | Low for a CPU-first learning project | **Skip** (CUDA only; GPU via MLX (Metal-backed) on Apple Silicon is planned, not started: see [261101](261101-apple-silicon-acceleration-strategy.md)) |
 
 The build-vs-reuse column below restates those verdicts as concrete project assignments; each
 row gets its own future ADR:

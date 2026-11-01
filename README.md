@@ -186,21 +186,22 @@ was re-measured for Phase 1; the longer-context numbers in
 
 ### Test coverage
 
-**147 test cases, 0 failing** (with `INFERENCE_MODEL` set: 146 pass, 1 skips; without it: 142
-pass, 5 skip), one xUnit v3 project per `src/` project:
+**150 test cases, 0 failing.** On macOS, with `INFERENCE_MODEL` set: 149 pass, 1 skip; without it:
+145 pass, 5 skip. On Linux (the CI runner), the 23 Accelerate-only cases skip: 127 pass, 23 skip
+with the model set; 123 pass, 27 skip without it. One xUnit v3 project per `src/` project:
 
 | Project | Test cases (incl. `[Theory]` rows) |
 |---|---|
 | `InferenceEngine.Core.Tests` | 4 |
 | `InferenceEngine.Tokenizers.Tests` | 8 |
-| `InferenceEngine.Cli.Tests` | 24 |
+| `InferenceEngine.Cli.Tests` | 27 (incl. process-level exit-code tests for bad `--model` paths) |
 | `InferenceEngine.Models.Tests` | 67 (incl. a bit-exact FNV-1a golden-logit-hash regression test against the real model, pinned to the managed loop, and Accelerate-vs-managed tolerance and greedy-token tests) |
 | `InferenceEngine.Engine.Tests` | 44 |
 
 Run with `dotnet test` (do not pass `-nologo`: it breaks the Microsoft.Testing.Platform runner).
 Four `Models.Tests` cases (the two golden-logit baselines and the two Accelerate end-to-end
 generation tests) additionally need `INFERENCE_MODEL=<path.gguf>` set to a real GGUF file — they
-skip cleanly, not fail, when it isn't. The Accelerate-specific tests skip off macOS. See each test project's own `README.md` for the business scenarios covered.
+skip cleanly, not fail, when it isn't. The 23 Accelerate-specific cases skip off macOS. See each test project's own `README.md` for the business scenarios covered.
 
 ### Architecture decisions
 

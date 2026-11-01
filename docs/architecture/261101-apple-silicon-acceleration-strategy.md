@@ -5,12 +5,11 @@
 
 ## Executive summary
 
-**We are moving to MLX for GPU execution, in two phases. Today only Phase 1 (CPU) exists; the
-engine does not use the GPU yet.**
+**We are moving to GPU tensor compute via MLX (which targets the Apple Silicon GPU through Metal), in two phases. Today only Phase 1 (CPU) exists; the engine does not use the GPU yet.**
 
 - **Phase 1 - Accelerate (CPU).** Replace the `Ops.MatVec` loop with Apple Accelerate
   `cblas_sgemv` via P/Invoke. Contained in `Models`. No interface change.
-- **Phase 2 - MLX (GPU).** Call MLX through its C API (`mlx-c`), via the `Itexoft.MLX` NuGet
+- **Phase 2 - MLX (CPU + Metal-backed GPU).** Call MLX through its C API (`mlx-c`), via the `Itexoft.MLX` NuGet
   package or our own P/Invoke. C# keeps model loading, tokenization, KV-cache policy, sampling,
   and the generation loop. MLX runs tensor math. Needs an `IModel`/`IKvCache` redesign and its
   own ADR before code.
@@ -23,7 +22,7 @@ engine does not use the GPU yet.**
 **Current status (2026-11-01)**
 
 - **Phase 1 (Accelerate, CPU) is implemented and tested.** Go/no-go gate passed.
-- **Phase 2 (MLX / Metal GPU) is NOT started. The engine does not use the GPU or Metal today.**
+- **Phase 2 (MLX via Metal GPU) is NOT started. The engine does not use the GPU or Metal today.**
   Phase 1 accelerates CPU matrix-vector math only.
 - Phase 2 next step: the spike (see Implementation plan). Handoff doc:
   [phase2-mlx-handoff.md](../investigation/phase2-mlx-handoff.md).
@@ -42,7 +41,8 @@ writing kernels and without giving up the parts of inference we built to underst
 
 Scope:
 
-- **Phase 1:** `InferenceEngine.Models` only. One new file, one changed method.
+- **Phase 1:** `InferenceEngine.Models` only. One new file (`AccelerateBlas.cs`), new members in
+  `Ops.cs` (`MatVec` dispatch, `MatVecManaged`, `ForceManagedMatVec`), plus tests.
 - **Phase 2:** `Core` contracts, `Models` (second `IModel`), `Engine` (cache, session init).
   Added as an alternative backend, not a rewrite.
 - **Unchanged:** `Tokenizers`, sampling, generation loop, `Cli`, and the ownership split in
@@ -67,7 +67,9 @@ Scope:
 - **A - Accelerate (Phase 1) then MLX via C API (Phase 2).**
 - **B - Accelerate only.** CPU-side, no GPU.
 - **C - TorchSharp + MPS.** libtorch bindings, Metal Performance Shaders backend.
-- **D - Raw Metal, hand-written kernels.** Our own MSL kernels called from C#.
+- **D - Hand-written MSL kernels (raw Metal).** Our own MSL kernels called from C#. This is an
+alternative to both MLX and llama.cpp's kernel library — it controls *who writes the compute*, not
+what backend runs them (MLX also runs on Metal).
 
 Not applicable on Apple Silicon: **CUDA** (NVIDIA dropped macOS support in 2020), **OpenCL/ILGPU**
 (OpenCL deprecated on macOS since 2018).
@@ -86,23 +88,31 @@ that). **D** is months of MSL work (llama.cpp has 38 kernels).
 `Engine`, `Tokenizers`, and `Cli` stay safe-only. We write **no `unsafe` blocks**. The flag exists
 because the `LibraryImport` generator requires it (`SYSLIB1062`, verified via context7).
 
-## How Ollama, llama.cpp, and MLX accelerate on Apple Silicon
+## How Ollama, llama.cpp, and MLX relate on Apple Silicon
 
-Research pass (web), **not measured here**. Figures are community-reported.
+Research pass (web), **not measured here**. Figures are community-reported. All three paths end at
+Metal compute — the differences are in orchestration and kernel layering.
 
-- **Metal compute kernels.** llama.cpp (and Ollama on it) ships hand-written MSL kernels (matmul,
-  flash attention, softmax, RoPE, dequant; 38 counted). MLX also uses Metal compute shaders, not
-  MPS.
-- **Unified memory.** CPU and GPU share pages through shared-storage `MTLBuffer`. No host-to-device
-  copy of weights or KV.
-- **Lazy evaluation and fusion (MLX).** Ops record a graph. `eval` fuses kernels and batches
-  command buffers. llama.cpp builds a static graph per step.
+- **llama.cpp's standalone Metal.** Ships hand-written MSL kernels (matmul, flash attention,
+  softmax, RoPE, dequant; 38 counted). Each kernel targets Metal directly, independent of any ML
+  framework. Ollama uses this backend for GGUF models.
+- **MLX on Metal (not instead of it).** MLX is Apple's ML framework whose GPU path *is* Metal
+  compute shaders (not MPS). Unified memory: CPU and GPU share pages through shared-storage
+  `MTLBuffer`. No host-to-device copy of weights or KV.
+- **MLX adds a lazy-evaluation layer above Metal.** Ops record a graph. `eval` fuses kernels and
+  batches command buffers. llama.cpp builds a static graph per step. This is the key architectural
+  difference between the two GGUF paths on Apple Silicon.
 - **Accelerate / matrix coprocessor.** Accelerate is the only supported route to it from .NET.
   M4 is reported to use SME, not AMX; sources conflict.
 - **ANE not used** for LLM decode by any of these. Out of scope.
-- **Reported results.** Ollama made MLX its default Apple Silicon backend in March 2026 (~2x
-  throughput claimed). MLX reports ~80 tok/s on Qwen3-8B Q4 (M4 Pro). Other models, not ours.
-- **Layering.** MLX = C++ core, `mlx-c` C API, language bindings. We bind at the C API.
+- **Reported results (unverified).** Ollama shipped an MLX engine alongside llama.cpp in v0.19
+  (March 2026). On Apple Silicon: **safetensors models use MLX (~up to 2x faster vs llama.cpp)**,
+  but **GGUF files still go through llama.cpp** unchanged — GGUF users on that path measured zero
+  improvement. "Ollama made MLX the default" is format-dependent, not platform-wide. Headline
+  claims of ~80 tok/s on Qwen3-8B Q4 are unverified and from a different model.
+- **Layering.** MLX = C++ core (Metal-backed), `mlx-c` C API, language bindings. We bind at the
+  C API. llama.cpp = C/C++ core with its own Metal kernels, no framework on top. Both reach Metal;
+  MLX adds orchestration above it.
 
 ## Consequences
 
@@ -161,11 +171,13 @@ only; the long prompt was not benchmarked.
   tests plus a greedy-token-equality test, not the hash.
 - **Files:** `src/InferenceEngine.Models/Math/AccelerateBlas.cs` (new), `Ops.cs` (changed);
   tests `Math/AccelerateBlasTests.cs`, `Math/OpsMatVecTests.cs`, `Llama/AcceleratedGenerationTests.cs`
-  (new). 147 tests: 146 pass + 1 skip with the model set; 142 pass + 5 skip without.
+  (new). 147 tests. On macOS: 146 pass + 1 skip with the model set; 142 pass + 5 skip without.
+  On Linux CI the 23 Accelerate-only cases skip: 124 pass + 23 skip with the model; 120 pass + 27
+  skip without (derived from the skip conditions, not run on Linux).
 - **`global.json`** had lost its `"test": {"runner": "Microsoft.Testing.Platform"}` block (removed
   by commit 079ca5e). Restored.
 
-### Phase 2 (MLX)
+### Phase 2 - MLX (CPU + Metal-backed GPU inference framework)
 
 | Component | Impact |
 |-----------|--------|
@@ -308,6 +320,6 @@ No change to `Core`, `Engine`, `Cli`, other `.csproj` files.
 |------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|
 | 2026-11-01 | Initial proposal                                                                                                                                                                                                    | Aleksei Kolesnikov |
 | 2026-11-01 | Simplified: merged scope and problem statement, numbered drivers (added low-hanging-fruit and keep-door-open), options limited to Apple Silicon (CUDA, OpenCL/ILGPU dropped to one line), compressed research and Consequences | Aleksei Kolesnikov |
-| 2026-11-01 | `unsafe` scope decided: `AllowUnsafeBlocks=true` in `InferenceEngine.Models.csproj` only; `Directory.Build.props` stays `false`; no hand-written `unsafe`; CPU path kept as test oracle only, not a cross-platform fallback | Aleksei Kolesnikov |
+| 2026-11-01 | `unsafe` scope decided: `AllowUnsafeBlocks=true` in `InferenceEngine.Models.csproj` only; `Directory.Build.props` stays `false`; no hand-written `unsafe`; CPU path kept as test oracle only, not a cross-platform fallback (superseded by the next two rows: it also stays as the runtime fallback when Accelerate is unavailable, because CI runs on ubuntu) | Aleksei Kolesnikov |
 | 2026-11-01 | Phase 1 implemented. Measured (M4 Pro, SmolLM2-135M-F16, short prompt, 64 tokens): managed 36.9/34.2/33.6/35.2 tok/s, Accelerate 82.2/94.8/84.6 tok/s (~2.4-2.8x). Text identical. Go/no-go gate passed. Cause of speedup unmeasured; AMX vs SME open. Library path, CBLAS constants verified. Phase 2 not started. Step 5 (260917 note) and long-prompt benchmark not done | Aleksei Kolesnikov |
-| 2026-11-01 | Deviations from Phase 1 plan: `AccelerateBlas.IsAvailable` probe plus `Ops.MatVecManaged` fallback (CI is ubuntu-latest) instead of unconditional call; added `Ops.ForceManagedMatVec()` and `INFERENCE_MATVEC=managed`, golden hash tests pin the managed path; restored `"test"` runner block in `global.json` (lost in 079ca5e). 147 tests: 146 pass + 1 skip (model set), 142 pass + 5 skip (no model) | Aleksei Kolesnikov |
+| 2026-11-01 | Deviations from Phase 1 plan: `AccelerateBlas.IsAvailable` probe plus `Ops.MatVecManaged` fallback (CI is ubuntu-latest) instead of unconditional call; added `Ops.ForceManagedMatVec()` and `INFERENCE_MATVEC=managed`, golden hash tests pin the managed path; restored `"test"` runner block in `global.json` (lost in 079ca5e). 147 tests; macOS: 146 pass + 1 skip (model set), 142 pass + 5 skip (no model); Linux CI: 23 more skip (Accelerate-only) | Aleksei Kolesnikov |
