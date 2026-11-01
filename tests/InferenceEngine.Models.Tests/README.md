@@ -40,6 +40,33 @@ implementation logic:
 Note: `Ops` lives in a namespace literally named `Math` (shadowing `System.Math` once imported),
 so `OpsTests.cs` only ever uses `MathF` for scalar math to avoid the ambiguity.
 
+### `Math/AccelerateBlas` (`AccelerateBlasTests.cs`) — Apple Accelerate matvec
+
+On Apple Silicon the matrix-vector product runs through Accelerate `cblas_sgemv`
+([ADR 261101](../../docs/architecture/261101-apple-silicon-acceleration-strategy.md)). All tests
+except the off-macOS probe check skip with a clear reason where Accelerate is unavailable (the
+Linux CI runner).
+
+- On macOS the framework loads and the symbol resolves (`IsAvailable`); off macOS it is false.
+- A hand-computed 2x3 product is correct.
+- Results match the managed loop within a float tolerance that scales with `inDim` (not
+  bit-equal; BLAS sums in a different order) across odd shapes and the real SmolLM2 shapes,
+  including the 49152x576 LM head.
+- A destination pre-filled with NaN is fully overwritten (beta = 0 never reads old contents).
+- Only the first `outDim` destination elements are written, and only the first `outDim*inDim`
+  weight / `inDim` input elements are read; sliced spans with a non-zero offset work.
+- Too-short spans and zero or negative dimensions throw `ArgumentOutOfRangeException` before any
+  native call and leave the destination untouched.
+
+### `Math/Ops.MatVec` dispatch (`OpsMatVecTests.cs`) — runs on every OS
+
+- `MatVec` and `MatVecManaged` give the hand-computed product; `MatVecManaged` matches a plain
+  double-precision triple loop.
+- Zero `outDim` or `inDim` never reaches BLAS and agrees with the managed loop (empty dot = 0).
+- `Ops.ForceManagedMatVec()` makes `MatVec` bit-identical to the managed loop inside its scope,
+  and is lifted on dispose. It is per execution context: a parallel task outside the scope is
+  unaffected.
+
 ### `Llama/GqaAttentionTests` — attention-loop equivalence
 
 `GqaAttention.Attend` (extracted from `LlamaModel.Forward`'s attention block per the
@@ -77,3 +104,11 @@ INFERENCE_MODEL=~/.cache/inference-engine/models/SmolLM2-135M-Instruct-f16.gguf 
 `InferenceSession.PrefillTopLogits` (the exact code path `InferenceEngine.Cli`'s debug-logits
 flag drives) because the chat-template wrapping that produces the fixed 164-token long prompt is
 internal to `Engine` and can't be reconstructed from `Models` alone.
+
+### `Llama/AcceleratedGenerationTests` — Accelerate does not change what the model says
+
+With the real SmolLM2-135M model (skips unless `INFERENCE_MODEL` is set), greedy generation of
+32 tokens from the short prompt yields the same token ids with Accelerate as with the managed
+loop, and prefill agrees on the top-1 token and shares at least 8 of the top-10 ids (float drift
+may reorder near-ties). The bit-exact golden hash tests pin the managed loop via
+`ForceManagedMatVec()`.

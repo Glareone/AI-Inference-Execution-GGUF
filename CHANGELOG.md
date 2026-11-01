@@ -7,6 +7,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Apple Accelerate matvec (Phase 1 of the acceleration ADR).** `Ops.MatVec` now calls
+  `cblas_sgemv` through `AccelerateBlas` (CPU, macOS). About 82–95 tok/s vs 34–37 tok/s on
+  SmolLM2-135M F16, M4 Pro. **No GPU/Metal yet; Phase 2 (MLX) is not started.** The old loop
+  remains as `Ops.MatVecManaged` (test reference, non-macOS fallback);
+  `INFERENCE_MATVEC=managed` switches to it. Golden-hash tests pin the managed loop. Handoff for
+  Phase 2: [phase2-mlx-handoff.md](docs/investigation/phase2-mlx-handoff.md).
+
+- Fix: a missing `--model` file (or directory) now prints a one-line error and exits with code 1
+  instead of crashing with an unhandled `FileNotFoundException` stack trace and exit code 134.
+  Covered by new process-level tests in `InferenceEngine.Cli.Tests/ProgramTests.cs`.
+- Fix: `global.json` regained its `Microsoft.Testing.Platform` test-runner block (dropped by an
+  earlier commit), so plain `dotnet test` works again on the .NET 10 SDK.
+- [Apple Silicon acceleration ADR](docs/architecture/261101-apple-silicon-acceleration-strategy.md)
+  (proposed): Accelerate `cblas_sgemv` for CPU matvec (Phase 1), MLX (via mlx-c, Metal-backed) for GPU tensor compute
+  (Phase 2). Project is now stated as Apple Silicon-centric (no Windows/Intel plans).
+- `AllowUnsafeBlocks=true` in `InferenceEngine.Models` only, for `LibraryImport` P/Invoke; rule
+  in `.claude/rules/unsafe-policy.md`. All other projects stay safe-only.
 - Project scaffolding: README with project goal and inspiration (dotLLM by Konrad Kokosa),
   AGENTS.md / CLAUDE.md ground rules, ADR template (`architecture/`), and Claude Code
   subagents (`adr-writer-reviewer`, `csharp-dotnet`).

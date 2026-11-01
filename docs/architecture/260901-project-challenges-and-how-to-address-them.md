@@ -77,7 +77,7 @@ rather than reading about it, actually teaches us about how inference works.
 | Sampling / logits | Low | **High** — temperature/top-k/top-p is core and cheap to build | **Build** |
 | Orchestration / generation loop | Low–Medium | **High** — how the pieces become a token stream | **Build** |
 | Serving (HTTP API) | Medium | Low — not an inference internal | **Defer** |
-| CUDA kernels | Very High | Low for a CPU-first learning project | **Skip** |
+| CUDA kernels | Very High | Low for a CPU-first learning project | **Skip** (CUDA only; GPU via MLX (Metal-backed) on Apple Silicon is planned, not started: see [261101](261101-apple-silicon-acceleration-strategy.md)) |
 
 The build-vs-reuse column below restates those verdicts as concrete project assignments; each
 row gets its own future ADR:
@@ -91,7 +91,7 @@ row gets its own future ADR:
 | KV-cache | **Build** — start simple (contiguous), understand before optimizing | `Engine` | [KV-cache](260914-kv-cache.md) |
 | Sampling / logits | **Build** — composable temp/top-k/top-p chain, plus deterministic logits processing (e.g. banned-sequence masking) as a distinct phase | `Engine` | [Logits processing and sampling pipeline](260917-logits-processing.md) |
 | Orchestration / generation loop | **Build** — the facade + streamed decode loop | `Engine` | (covered by structure + this ADR) |
-| Performance | Measure against dotLLM; managed-first, `unsafe` only with sign-off | cross-cutting | [Performance baseline](planned-performance-baseline.md) |
+| Performance | Measure against dotLLM; managed-first, `unsafe` only with sign-off (Apple Silicon acceleration: [261101](261101-apple-silicon-acceleration-strategy.md)) | cross-cutting | [Performance baseline](planned-performance-baseline.md) |
 | Serving | Deferred until the generate loop works | (future `Server`) | (future) |
 
 ### Model acquisition: what we fetch and where it lives
@@ -240,3 +240,4 @@ sources.
 | 2026-09-17 | Fixed dead link: KV-cache row pointed at the retired `planned-kv-cache.md` placeholder, now points at [260914-kv-cache.md](260914-kv-cache.md); updated the Sampling/logits row's follow-up link from the retired `planned-sampling-pipeline.md` placeholder to [260917-logits-processing.md](260917-logits-processing.md) | Aleksei Kolesnikov |
 | 2026-09-17 | Status: proposed → accepted — the build-vs-reuse strategy this ADR sets has held through every downstream challenge-ADR since; rows still not started (HuggingFace acquisition, performance baseline) are deferred work, not an unresolved decision | Aleksei Kolesnikov |
 | 2026-09-17 | Fixed dead link: Transformer forward pass / attention row's follow-up link pointed at the retired `planned-attention-and-transformer.md` placeholder, now points at [260917-attention-and-transformer.md](260917-attention-and-transformer.md) | Aleksei Kolesnikov |
+| 2026-11-01 | Added cross-reference notes to the CUDA kernels row and the Performance row pointing at proposed [261101-apple-silicon-acceleration-strategy.md](261101-apple-silicon-acceleration-strategy.md); no verdict changed (CUDA stays Skip) | Aleksei Kolesnikov |

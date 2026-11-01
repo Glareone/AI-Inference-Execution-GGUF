@@ -18,11 +18,63 @@ internal static class Ops
     }
 
     /// <summary>
+    /// Environment variable that forces the managed <see cref="MatVecManaged"/> loop when set to
+    /// <c>managed</c>. For A/B benchmarking and for reproducing the bit-exact golden-hash path;
+    /// not a feature flag.
+    /// </summary>
+    public const string MatVecBackendEnvVar = "INFERENCE_MATVEC";
+
+    private static readonly bool UseAccelerate =
+        AccelerateBlas.IsAvailable
+        && !string.Equals(Environment.GetEnvironmentVariable(MatVecBackendEnvVar), "managed", StringComparison.OrdinalIgnoreCase);
+
+    // Per-execution-context override so one test can pin the managed loop while others, running
+    // in parallel, keep using Accelerate. Only tests set it.
+    private static readonly AsyncLocal<bool> ForceManaged = new();
+
+    /// <summary>
+    /// Makes <see cref="MatVec"/> use <see cref="MatVecManaged"/> for the current execution
+    /// context until the returned scope is disposed. The golden logit hash is bit-exact, and
+    /// BLAS may sum in a different order on a different chip, so the golden tests pin the managed
+    /// loop instead of pinning one machine's Accelerate output.
+    /// </summary>
+    public static IDisposable ForceManagedMatVec()
+    {
+        ForceManaged.Value = true;
+        return new ManagedScope();
+    }
+
+    private sealed class ManagedScope : IDisposable
+    {
+        public void Dispose() => ForceManaged.Value = false;
+    }
+
+    /// <summary>
     /// Multiplies a row-major <c>[outDim, inDim]</c> weight matrix by <paramref name="x"/>.
     /// GGUF stores weights with the input dimension contiguous (<c>ne[0]</c>), which is
     /// exactly this layout — no transpose needed.
     /// </summary>
+    /// <remarks>
+    /// Uses Apple Accelerate <c>cblas_sgemv</c> when available (ADR 261101), else
+    /// <see cref="MatVecManaged"/>. The two can differ in the last float bits because BLAS may sum
+    /// in a different order.
+    /// </remarks>
     public static void MatVec(ReadOnlySpan<float> weight, int outDim, int inDim, ReadOnlySpan<float> x, Span<float> destination)
+    {
+        if (UseAccelerate && !ForceManaged.Value && outDim > 0 && inDim > 0)
+        {
+            AccelerateBlas.MatVec(weight, outDim, inDim, x, destination);
+            return;
+        }
+
+        MatVecManaged(weight, outDim, inDim, x, destination);
+    }
+
+    /// <summary>
+    /// The original loop: one <see cref="TensorPrimitives.Dot"/> per output row. Always available.
+    /// It is the reference the Accelerate path is tested against.
+    /// </summary>
+    public static void MatVecManaged(ReadOnlySpan<float> weight, int outDim, int inDim, ReadOnlySpan<float> x, Span<float> destination)
     {
         for (var o = 0; o < outDim; o++)
         {

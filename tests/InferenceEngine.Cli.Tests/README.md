@@ -53,6 +53,17 @@ the expected stream.
 Minimal: confirms the wrapped action's result is returned unchanged and the reported elapsed time
 is never negative.
 
+### `Program` exit codes (`ProgramTests.cs`)
+
+`Program.cs` is top-level statements, so these tests run the built CLI as a child process (empty
+temp working directory, every `INFERENCE_*` variable stripped so a real `.env` or shell can't
+supply a model). None of them load real weights.
+
+- A `--model` path that doesn't exist prints a one-line `Could not find file '...'` message to
+  stderr and exits with code 1 — no stack trace, no abort code.
+- A `--model` path inside a missing directory does the same (`Could not find a part of the path`).
+- Omitting `--model` prints the usage text and exits with code 1.
+
 ## Production-code seam added
 
 `CliOptions.Load` gained an optional `bool loadDotEnv = true` parameter so tests can exercise the

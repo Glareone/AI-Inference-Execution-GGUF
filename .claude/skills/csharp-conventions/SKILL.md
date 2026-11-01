@@ -92,8 +92,11 @@ Don't add a direct reference here even for a debug flag that looks like a shortc
 
 ## Cross-cutting
 
-- `AllowUnsafeBlocks=false` repo-wide (`Directory.Build.props`). `unsafe` needs the
-  justify-and-confirm step from AGENTS.md before it's written — every time, not just the first time.
+- `AllowUnsafeBlocks=false` in `Directory.Build.props`, so every project is safe-only **except
+  `InferenceEngine.Models`**, whose `.csproj` sets it `true` for `LibraryImport` P/Invoke
+  (Accelerate/MLX; ADR 261101, `.claude/rules/unsafe-policy.md`). Never copy the flag elsewhere.
+  Hand-written `unsafe` still needs the justify-and-confirm step from AGENTS.md — every time, not
+  just the first time.
 - `TreatWarningsAsErrors=true` — a new compiler warning breaks the build. Fix the warning; don't
   reach for a suppressing pragma without saying why in the response.
 - One xUnit v3 test project per `src/` project (`tests/InferenceEngine.<Name>.Tests/`), each with
