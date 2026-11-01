@@ -122,8 +122,17 @@ This project uses AI-assisted development with structured agents:
 | `huggingface-explorer` | HuggingFace ecosystem (model formats, APIs, downloads) |
 | `code-reader` | Read/analyze external repos (dotLLM, LLamaSharp) |
 
-All agents use [context7](https://github.com/upstash/context7) for current library
-documentation instead of relying on training data.
+### MCP servers
+
+| Server | Purpose |
+|--------|---------|
+| [context7](https://github.com/upstash/context7) | Current library/BCL docs instead of training data |
+| [Serena](https://github.com/oraios/serena) | Symbol-level code navigation via the Roslyn language server |
+
+Serena is configured per-project in [.mcp.json](.mcp.json) and launched with `uvx`, so the only
+prerequisite is [uv](https://docs.astral.sh/uv/getting-started/installation/) — no global
+install. It needs .NET 10+ for its C# language server, which this repo already requires.
+Approve the server once when Claude Code prompts, then check it with `/mcp`.
 
 ## Status
 

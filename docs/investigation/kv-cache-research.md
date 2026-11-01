@@ -1,3 +1,4 @@
+
 # KV-Cache Design Research
 
 Research backing the [KV-cache ADR](../architecture/260914-kv-cache.md). Question: given the

@@ -112,3 +112,16 @@ Don't add a direct reference here even for a debug flag that looks like a shortc
 - Before recommending a **new** package — the "reuse a library" default from AGENTS.md's Stack
   policy — use context7 to confirm it's actually maintained and does what you think. Don't
   recommend from memory alone; a stale recommendation is worse than no recommendation.
+
+## Serena — symbol navigation, not grep
+
+- To find where a type, method, or field is declared or used, use `mcp__serena__find_symbol` /
+  `find_referencing_symbols` / `get_symbols_overview` — not `Grep`. Grep matches text; Serena
+  matches symbols through the Roslyn language server, so it won't confuse a comment, a string
+  literal, or a same-named member on a different type. Keep `Grep` for non-symbol searches (a
+  TODO, a literal, a `.csproj` property).
+- After a large edit or a `.csproj`/solution change, if symbol results look stale, call
+  `restart_language_server` before trusting the next query.
+- Serena's editing/file-mutation tools (`replace_symbol_body`, `insert_after_symbol`,
+  `create_text_file`, etc.) are off by design in the `claude-code` context (see `.mcp.json`) —
+  edits still go through `Edit`/`Write` as before, not through Serena.

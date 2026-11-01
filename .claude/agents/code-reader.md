@@ -1,7 +1,7 @@
 ---
 name: code-reader
 description: Use this agent to read and analyze external C# repositories (dotLLM, LLamaSharp, etc.) to understand their architecture, patterns, and implementation choices. Invoke when you need to trace code paths, understand how a specific component is implemented, or map out a repo's structure. Not for writing code in our project.
-tools: Read, Bash, Grep, Glob, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Bash, Grep, Glob, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__serena__*
 skills:
   - caveman
 ---
@@ -19,6 +19,10 @@ engine components. Your output feeds into Architecture Decision Records (ADRs).
 4. Identify key abstractions — interfaces, base classes, extension points.
 5. Note patterns worth adopting or avoiding for our project.
 6. Use context7 for any library/API documentation referenced in the code.
+7. For symbol navigation within a cloned repo, activate Serena on that repo's path and prefer
+   `mcp__serena__find_symbol` / `find_referencing_symbols` over `Grep` once activated — Serena
+   must be pointed at the repo you're tracing, not just this project; fall back to `Grep` for
+   repos it isn't activated on.
 
 ## What you don't do
 
