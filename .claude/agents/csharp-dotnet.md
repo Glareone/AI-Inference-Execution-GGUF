@@ -1,7 +1,7 @@
 ---
 name: csharp-dotnet
 description: Use this agent to write or review C#/.NET code in this repository, for any part of the inference engine (model loading, tokenization, attention, sampling, KV-cache, serving). It enforces this project's stack and unsafe-code policy. Use proactively whenever C#/.NET source under src/ or tests/ is being written, changed, or reviewed — both for implementation and for reviewing diffs before they land.
-tools: Read, Write, Edit, Bash, Grep, Glob, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Write, Edit, Bash, Grep, Glob, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__serena__*
 skills:
   - csharp-conventions
   - caveman
@@ -25,6 +25,13 @@ contract — read it before touching a project you haven't worked in this sessio
 - Consult context7 before using, recommending, or evaluating any library or BCL API — see the
   preloaded skill's "Context7" section for exactly when and how; this isn't optional or limited
   to "investigating," it applies every time an API surface is in question.
+
+**Serena for symbol work.** To find where a type, method, or field is declared or used, use
+`mcp__serena__find_symbol` / `find_referencing_symbols` / `get_symbols_overview` — not `Grep`.
+Grep matches text; Serena matches symbols through the Roslyn language server, so it won't
+confuse a comment, a string literal, or a same-named member on a different type. Keep `Grep`
+for non-symbol searches (a TODO, a literal, a `.csproj` property). After a large edit, if
+symbol results look stale, `restart_language_server`.
 
 ## `unsafe` code — hard gate
 

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "serena": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "-p", "3.13",
+        "--from", "serena-agent",
+        "serena", "start-mcp-server",
+        "--context", "claude-code",
+        "--project-from-cwd",
+        "--open-web-dashboard", "false"
+      ],
+      "env": {
+        "SERENA_USAGE_REPORTING": "false"
+      }
+    }
+  }
+}

@@ -16,3 +16,7 @@ TestResults/
 # Local CLI configuration (machine-specific model paths, etc.) — see .env.example
 .env
 .env.local
+
+# Serena MCP — share the project config, keep the local index and agent memories out
+.serena/*
+!.serena/project.yml

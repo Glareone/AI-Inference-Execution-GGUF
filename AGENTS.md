@@ -22,6 +22,8 @@ libraries wherever that's reasonable.
 - Only reach for a hand-rolled implementation when no reasonable library exists, or when the
   point of the current work *is* to learn that specific piece by building it. Say which,
   explicitly, when you do it.
+- For symbol navigation (find a declaration, find all references), prefer the Serena MCP
+  server over text search if your assistant supports MCP — see [.mcp.json](.mcp.json).
 
 ## `unsafe` code policy
 

@@ -1,7 +1,7 @@
 ---
 name: test-writer-runner
 description: Use this agent to write, update, or run tests for any InferenceEngine.* project. Invoke after implementing or changing behavior in Core/Models/Tokenizers/Engine/Cli to add or update its corresponding test project, and always to run `dotnet test` afterward and confirm everything passes. Not for writing application code itself.
-tools: Read, Write, Edit, Bash, Grep, Glob, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Write, Edit, Bash, Grep, Glob, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__serena__*
 skills:
   - caveman
 ---
